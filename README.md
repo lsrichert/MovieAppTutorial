@@ -809,4 +809,545 @@ Because the Model object is strongly typed (as an IEnumerable<Movie> object), ea
 
 Intellisense contextual menu on a Model item listing the available properties for ID, Price, Release Date, and Title
 
-PART FIVE - WORK WITH SQL SERVER LOCAL DB
+# PART FIVE - WORK WITH SQL SERVER LOCAL DB
+The MvcMovieContext object handles the task of connecting to the database and mapping Movie objects to database records. The database context is registered with the Dependency Injection container in the ConfigureServices method in the Startup.cs file:
+
+C#
+
+Copy
+public void ConfigureServices(IServiceCollection services)
+{
+    services.Configure<CookiePolicyOptions>(options =>
+    {
+        // This lambda determines whether user consent for non-essential cookies is needed for a given request.
+        options.CheckConsentNeeded = context => true;
+        options.MinimumSameSitePolicy = SameSiteMode.None;
+    });
+
+
+    services.AddMvc().SetCompatibilityVersion(CompatibilityVersion.Version_2_1);
+
+    services.AddDbContext<MvcMovieContext>(options =>
+            options.UseSqlServer(Configuration.GetConnectionString("MvcMovieContext")));
+}
+The ASP.NET Core Configuration system reads the ConnectionString. For local development, it gets the connection string from the appsettings.json file:
+
+JSON
+
+Copy
+"ConnectionStrings": {
+  "MvcMovieContext": "Server=(localdb)\\mssqllocaldb;Database=MvcMovieContext-2;Trusted_Connection=True;MultipleActiveResultSets=true"
+}
+When you deploy the app to a test or production server, you can use an environment variable or another approach to set the connection string to a real SQL Server. See Configuration for more information.
+
+SQL Server Express LocalDB
+LocalDB is a lightweight version of the SQL Server Express Database Engine that's targeted for program development. LocalDB starts on demand and runs in user mode, so there's no complex configuration. By default, LocalDB database creates "*.mdf" files in the C:/Users/<user> directory.
+
+From the View menu, open SQL Server Object Explorer (SSOX).
+
+View menu
+
+Right click on the Movie table > View Designer
+
+Contextual menu open on Movie table
+
+Movie table open in Designer
+
+Note the key icon next to ID. By default, EF will make a property named ID the primary key.
+
+Right click on the Movie table > View Data
+
+Contextual menu open on Movie table
+
+Movie table open showing table data
+
+Seed the database
+Create a new class named SeedData in the Models folder. Replace the generated code with the following:
+
+C#
+
+Copy
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Linq;
+
+namespace MvcMovie.Models
+{
+    public static class SeedData
+    {
+        public static void Initialize(IServiceProvider serviceProvider)
+        {
+            using (var context = new MvcMovieContext(
+                serviceProvider.GetRequiredService<DbContextOptions<MvcMovieContext>>()))
+            {
+                // Look for any movies.
+                if (context.Movie.Any())
+                {
+                    return;   // DB has been seeded
+                }
+
+                context.Movie.AddRange(
+                     new Movie
+                     {
+                         Title = "When Harry Met Sally",
+                         ReleaseDate = DateTime.Parse("1989-1-11"),
+                         Genre = "Romantic Comedy",
+                         Price = 7.99M
+                     },
+
+                     new Movie
+                     {
+                         Title = "Ghostbusters ",
+                         ReleaseDate = DateTime.Parse("1984-3-13"),
+                         Genre = "Comedy",
+                         Price = 8.99M
+                     },
+
+                     new Movie
+                     {
+                         Title = "Ghostbusters 2",
+                         ReleaseDate = DateTime.Parse("1986-2-23"),
+                         Genre = "Comedy",
+                         Price = 9.99M
+                     },
+
+                   new Movie
+                   {
+                       Title = "Rio Bravo",
+                       ReleaseDate = DateTime.Parse("1959-4-15"),
+                       Genre = "Western",
+                       Price = 3.99M
+                   }
+                );
+                context.SaveChanges();
+            }
+        }
+    }
+}
+If there are any movies in the DB, the seed initializer returns and no movies are added.
+
+C#
+
+Copy
+if (context.Movie.Any())
+{
+    return;   // DB has been seeded.
+}
+
+Add the seed initializer
+Replace the contents of Program.cs with the following code:
+
+C#
+
+Copy
+using Microsoft.AspNetCore;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using System;
+using Microsoft.EntityFrameworkCore;
+using MvcMovie.Models;
+using MvcMovie;
+
+namespace MvcMovie
+{
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            var host = CreateWebHostBuilder(args).Build();
+
+            using (var scope = host.Services.CreateScope())
+            {
+                var services = scope.ServiceProvider;
+
+                try
+                {
+                    var context = services.GetRequiredService<MvcMovieContext>();
+                    context.Database.Migrate();
+                    SeedData.Initialize(services);
+                }
+                catch (Exception ex)
+                {
+                    var logger = services.GetRequiredService<ILogger<Program>>();
+                    logger.LogError(ex, "An error occurred seeding the DB.");
+                }
+            }
+
+            host.Run();
+        }
+
+        public static IWebHostBuilder CreateWebHostBuilder(string[] args) =>
+            WebHost.CreateDefaultBuilder(args)
+                .UseStartup<Startup>();
+    }
+}
+Test the app
+
+Delete all the records in the DB. You can do this with the delete links in the browser or from SSOX.
+
+Force the app to initialize (call the methods in the Startup class) so the seed method runs. To force initialization, IIS Express must be stopped and restarted. You can do this with any of the following approaches:
+
+Right click the IIS Express system tray icon in the notification area and tap Exit or Stop Site
+
+IIS Express system tray icon
+
+Contextual menu
+
+If you were running VS in non-debug mode, press F5 to run in debug mode
+If you were running VS in debug mode, stop the debugger and press F5
+The app shows the seeded data.
+
+MVC Movie application open in Microsoft Edge showing movie data
+
+# PART SIX - CONTROLLER METHODS AND VIEWS
+We have a good start to the movie app, but the presentation isn't ideal. We don't want to see the time (12:00:00 AM in the image below) and ReleaseDate should be two words.
+
+Index view: Release Date is one word (no space) and every movie release date shows a time of 12 AM
+
+Open the Models/Movie.cs file and add the highlighted lines shown below:
+
+C#
+
+Copy
+using System;
+using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
+
+namespace MvcMovie.Models
+{
+    public class Movie
+    {
+        public int ID { get; set; }
+        public string Title { get; set; }
+
+        [Display(Name = "Release Date")]
+        [DataType(DataType.Date)]
+        public DateTime ReleaseDate { get; set; }
+        public string Genre { get; set; }
+
+        [Column(TypeName = "decimal(18, 2)")]
+        public decimal Price { get; set; }
+    }
+}
+We cover DataAnnotations in the next tutorial. The Display attribute specifies what to display for the name of a field (in this case "Release Date" instead of "ReleaseDate"). The DataType attribute specifies the type of the data (Date), so the time information stored in the field isn't displayed.
+
+The [Column(TypeName = "decimal(18, 2)")] data annotation is required so Entity Framework Core can correctly map Price to currency in the database. For more information, see Data Types.
+
+Browse to the Movies controller and hold the mouse pointer over an Edit link to see the target URL.
+
+Browser window with mouse over the Edit link and a link Url of http://localhost:1234/Movies/Edit/5 is shown
+
+The Edit, Details, and Delete links are generated by the Core MVC Anchor Tag Helper in the Views/Movies/Index.cshtml file.
+
+HTML
+
+Copy
+        <a asp-action="Edit" asp-route-id="@item.ID">Edit</a> |
+        <a asp-action="Details" asp-route-id="@item.ID">Details</a> |
+        <a asp-action="Delete" asp-route-id="@item.ID">Delete</a>
+    </td>
+</tr>
+Tag Helpers enable server-side code to participate in creating and rendering HTML elements in Razor files. In the code above, the AnchorTagHelper dynamically generates the HTML href attribute value from the controller action method and route id. You use View Source from your favorite browser or use the developer tools to examine the generated markup. A portion of the generated HTML is shown below:
+
+HTML
+
+Copy
+ <td>
+    <a href="/Movies/Edit/4"> Edit </a> |
+    <a href="/Movies/Details/4"> Details </a> |
+    <a href="/Movies/Delete/4"> Delete </a>
+</td>
+Recall the format for routing set in the Startup.cs file:
+
+C#
+
+Copy
+app.UseMvc(routes =>
+{
+    routes.MapRoute(
+        name: "default",
+        template: "{controller=Home}/{action=Index}/{id?}");
+});
+ASP.NET Core translates http://localhost:1234/Movies/Edit/4 into a request to the Edit action method of the Movies controller with the parameter Id of 4. (Controller methods are also known as action methods.)
+
+Tag Helpers are one of the most popular new features in ASP.NET Core. See Additional resources for more information.
+
+Open the Movies controller and examine the two Edit action methods. The following code shows the HTTP GET Edit method, which fetches the movie and populates the edit form generated by the Edit.cshtml Razor file.
+
+C#
+
+Copy
+// GET: Movies/Edit/5
+public async Task<IActionResult> Edit(int? id)
+{
+    if (id == null)
+    {
+        return NotFound();
+    }
+
+    var movie = await _context.Movie.FindAsync(id);
+    if (movie == null)
+    {
+        return NotFound();
+    }
+    return View(movie);
+}
+The following code shows the HTTP POST Edit method, which processes the posted movie values:
+
+C#
+
+Copy
+// POST: Movies/Edit/5
+// To protect from overposting attacks, please enable the specific properties you want to bind to, for 
+// more details see http://go.microsoft.com/fwlink/?LinkId=317598.
+[HttpPost]
+[ValidateAntiForgeryToken]
+public async Task<IActionResult> Edit(int id, [Bind("ID,Title,ReleaseDate,Genre,Price")] Movie movie)
+{
+    if (id != movie.ID)
+    {
+        return NotFound();
+    }
+
+    if (ModelState.IsValid)
+    {
+        try
+        {
+            _context.Update(movie);
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            if (!MovieExists(movie.ID))
+            {
+                return NotFound();
+            }
+            else
+            {
+                throw;
+            }
+        }
+        return RedirectToAction("Index");
+    }
+    return View(movie);
+}
+The [Bind] attribute is one way to protect against over-posting. You should only include properties in the [Bind] attribute that you want to change. See Protect your controller from over-posting for more information. ViewModels provide an alternative approach to prevent over-posting.
+
+Notice the second Edit action method is preceded by the [HttpPost] attribute.
+
+C#
+
+Copy
+[HttpPost]
+[ValidateAntiForgeryToken]
+public async Task<IActionResult> Edit(int id, [Bind("ID,Title,ReleaseDate,Genre,Price")] Movie movie)
+{
+    if (id != movie.ID)
+    {
+        return NotFound();
+    }
+
+    if (ModelState.IsValid)
+    {
+        try
+        {
+            _context.Update(movie);
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            if (!MovieExists(movie.ID))
+            {
+                return NotFound();
+            }
+            else
+            {
+                throw;
+            }
+        }
+        return RedirectToAction(nameof(Index));
+    }
+    return View(movie);
+}
+The HttpPost attribute specifies that this Edit method can be invoked only for POST requests. You could apply the [HttpGet] attribute to the first edit method, but that's not necessary because [HttpGet] is the default.
+
+The ValidateAntiForgeryToken attribute is used to prevent forgery of a request and is paired up with an anti-forgery token generated in the edit view file (Views/Movies/Edit.cshtml). The edit view file generates the anti-forgery token with the Form Tag Helper.
+
+HTML
+
+Copy
+<form asp-action="Edit">
+The Form Tag Helper generates a hidden anti-forgery token that must match the [ValidateAntiForgeryToken] generated anti-forgery token in the Edit method of the Movies controller. For more information, see Anti-Request Forgery.
+
+The HttpGet Edit method takes the movie ID parameter, looks up the movie using the Entity Framework SingleOrDefaultAsync method, and returns the selected movie to the Edit view. If a movie cannot be found, NotFound (HTTP 404) is returned.
+
+C#
+
+Copy
+// GET: Movies/Edit/5
+public async Task<IActionResult> Edit(int? id)
+{
+    if (id == null)
+    {
+        return NotFound();
+    }
+
+    var movie = await _context.Movie.FindAsync(id);
+    if (movie == null)
+    {
+        return NotFound();
+    }
+    return View(movie);
+}
+When the scaffolding system created the Edit view, it examined the Movie class and created code to render <label> and <input> elements for each property of the class. The following example shows the Edit view that was generated by the Visual Studio scaffolding system:
+
+HTML
+
+Copy
+@model MvcMovie.Models.Movie
+
+@{
+    ViewData["Title"] = "Edit";
+}
+
+<h2>Edit</h2>
+
+<form asp-action="Edit">
+    <div class="form-horizontal">
+        <h4>Movie</h4>
+        <hr />
+        <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+    <input type="hidden" asp-for="ID" />
+        <div class="form-group">
+            <label asp-for="Title" class="col-md-2 control-label"></label>
+            <div class="col-md-10">
+                <input asp-for="Title" class="form-control" />
+                <span asp-validation-for="Title" class="text-danger"></span>
+            </div>
+        </div>
+        <div class="form-group">
+            <label asp-for="ReleaseDate" class="col-md-2 control-label"></label>
+            <div class="col-md-10">
+                <input asp-for="ReleaseDate" class="form-control" />
+                <span asp-validation-for="ReleaseDate" class="text-danger"></span>
+            </div>
+        </div>
+        <div class="form-group">
+            <label asp-for="Genre" class="col-md-2 control-label"></label>
+            <div class="col-md-10">
+                <input asp-for="Genre" class="form-control" />
+                <span asp-validation-for="Genre" class="text-danger"></span>
+            </div>
+        </div>
+        <div class="form-group">
+            <label asp-for="Price" class="col-md-2 control-label"></label>
+            <div class="col-md-10">
+                <input asp-for="Price" class="form-control" />
+                <span asp-validation-for="Price" class="text-danger"></span>
+            </div>
+        </div>
+        <div class="form-group">
+            <div class="col-md-offset-2 col-md-10">
+                <input type="submit" value="Save" class="btn btn-default" />
+            </div>
+        </div>
+    </div>
+</form>
+
+<div>
+    <a asp-action="Index">Back to List</a>
+</div>
+
+@section Scripts {
+    @{await Html.RenderPartialAsync("_ValidationScriptsPartial");}
+}
+Notice how the view template has a @model MvcMovie.Models.Movie statement at the top of the file. @model MvcMovie.Models.Movie specifies that the view expects the model for the view template to be of type Movie.
+
+The scaffolded code uses several Tag Helper methods to streamline the HTML markup. The - Label Tag Helper displays the name of the field ("Title", "ReleaseDate", "Genre", or "Price"). The Input Tag Helper renders an HTML <input> element. The Validation Tag Helper displays any validation messages associated with that property.
+
+Run the application and navigate to the /Movies URL. Click an Edit link. In the browser, view the source for the page. The generated HTML for the <form> element is shown below.
+
+HTML
+
+Copy
+<form action="/Movies/Edit/7" method="post">
+    <div class="form-horizontal">
+        <h4>Movie</h4>
+        <hr />
+        <div class="text-danger" />
+        <input type="hidden" data-val="true" data-val-required="The ID field is required." id="ID" name="ID" value="7" />
+        <div class="form-group">
+            <label class="control-label col-md-2" for="Genre" />
+            <div class="col-md-10">
+                <input class="form-control" type="text" id="Genre" name="Genre" value="Western" />
+                <span class="text-danger field-validation-valid" data-valmsg-for="Genre" data-valmsg-replace="true"></span>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="control-label col-md-2" for="Price" />
+            <div class="col-md-10">
+                <input class="form-control" type="text" data-val="true" data-val-number="The field Price must be a number." data-val-required="The Price field is required." id="Price" name="Price" value="3.99" />
+                <span class="text-danger field-validation-valid" data-valmsg-for="Price" data-valmsg-replace="true"></span>
+            </div>
+        </div>
+        <!-- Markup removed for brevity -->
+        <div class="form-group">
+            <div class="col-md-offset-2 col-md-10">
+                <input type="submit" value="Save" class="btn btn-default" />
+            </div>
+        </div>
+    </div>
+    <input name="__RequestVerificationToken" type="hidden" value="CfDJ8Inyxgp63fRFqUePGvuI5jGZsloJu1L7X9le1gy7NCIlSduCRx9jDQClrV9pOTTmqUyXnJBXhmrjcUVDJyDUMm7-MF_9rK8aAZdRdlOri7FmKVkRe_2v5LIHGKFcTjPrWPYnc9AdSbomkiOSaTEg7RU" />
+</form>
+The <input> elements are in an HTML <form> element whose action attribute is set to post to the /Movies/Edit/id URL. The form data will be posted to the server when the Save button is clicked. The last line before the closing </form> element shows the hidden XSRF token generated by the Form Tag Helper.
+
+Processing the POST Request
+The following listing shows the [HttpPost] version of the Edit action method.
+
+C#
+
+Copy
+[HttpPost]
+[ValidateAntiForgeryToken]
+public async Task<IActionResult> Edit(int id, [Bind("ID,Title,ReleaseDate,Genre,Price")] Movie movie)
+{
+    if (id != movie.ID)
+    {
+        return NotFound();
+    }
+
+    if (ModelState.IsValid)
+    {
+        try
+        {
+            _context.Update(movie);
+            await _context.SaveChangesAsync();
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            if (!MovieExists(movie.ID))
+            {
+                return NotFound();
+            }
+            else
+            {
+                throw;
+            }
+        }
+        return RedirectToAction(nameof(Index));
+    }
+    return View(movie);
+}
+The [ValidateAntiForgeryToken] attribute validates the hidden XSRF token generated by the anti-forgery token generator in the Form Tag Helper
+
+The model binding system takes the posted form values and creates a Movie object that's passed as the movie parameter. The ModelState.IsValid method verifies that the data submitted in the form can be used to modify (edit or update) a Movie object. If the data is valid it's saved. The updated (edited) movie data is saved to the database by calling the SaveChangesAsync method of database context. After saving the data, the code redirects the user to the Index action method of the MoviesController class, which displays the movie collection, including the changes just made.
+
+Before the form is posted to the server, client side validation checks any validation rules on the fields. If there are any validation errors, an error message is displayed and the form isn't posted. If JavaScript is disabled, you won't have client side validation but the server will detect the posted values that are not valid, and the form values will be redisplayed with error messages. Later in the tutorial we examine Model Validation in more detail. The Validation Tag Helper in the Views/Movies/Edit.cshtml view template takes care of displaying appropriate error messages.
+
+Edit view: An exception for an incorrect Price value of abc states that The field Price must be a number. An exception for an incorrect Release Date value of xyz states Please enter a valid date.
+
+All the HttpGet methods in the movie controller follow a similar pattern. They get a movie object (or list of objects, in the case of Index), and pass the object (model) to the view. The Create method passes an empty movie object to the Create view. All the methods that create, edit, delete, or otherwise modify data do so in the [HttpPost] overload of the method. Modifying data in an HTTP GET method is a security risk. Modifying data in an HTTP GET method also violates HTTP best practices and the architectural REST pattern, which specifies that GET requests shouldn't change the state of your application. In other words, performing a GET operation should be a safe operation that has no side effects and doesn't modify your persisted data.
+
+# PART SEVEN - 
