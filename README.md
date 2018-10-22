@@ -1350,4 +1350,793 @@ Edit view: An exception for an incorrect Price value of abc states that The fiel
 
 All the HttpGet methods in the movie controller follow a similar pattern. They get a movie object (or list of objects, in the case of Index), and pass the object (model) to the view. The Create method passes an empty movie object to the Create view. All the methods that create, edit, delete, or otherwise modify data do so in the [HttpPost] overload of the method. Modifying data in an HTTP GET method is a security risk. Modifying data in an HTTP GET method also violates HTTP best practices and the architectural REST pattern, which specifies that GET requests shouldn't change the state of your application. In other words, performing a GET operation should be a safe operation that has no side effects and doesn't modify your persisted data.
 
-# PART SEVEN - 
+# PART SEVEN - ADD SEARCH TO ASP.NET CORE MVC APP
+In this section you add search capability to the Index action method that lets you search movies by genre or name.
+
+Update the Index method with the following code:
+
+C#
+
+Copy
+public async Task<IActionResult> Index(string searchString)
+{
+    var movies = from m in _context.Movie
+                 select m;
+
+    if (!String.IsNullOrEmpty(searchString))
+    {
+        movies = movies.Where(s => s.Title.Contains(searchString));
+    }
+
+    return View(await movies.ToListAsync());
+}
+The first line of the Index action method creates a LINQ query to select the movies:
+
+C#
+
+Copy
+var movies = from m in _context.Movie
+             select m;
+The query is only defined at this point, it has not been run against the database.
+
+If the searchString parameter contains a string, the movies query is modified to filter on the value of the search string:
+
+C#
+
+Copy
+if (!String.IsNullOrEmpty(searchString))
+{
+    movies = movies.Where(s => s.Title.Contains(searchString));
+}
+The s => s.Title.Contains() code above is a Lambda Expression. Lambdas are used in method-based LINQ queries as arguments to standard query operator methods such as the Where method or Contains (used in the code above). LINQ queries are not executed when they're defined or when they're modified by calling a method such as Where, Contains or OrderBy. Rather, query execution is deferred. That means that the evaluation of an expression is delayed until its realized value is actually iterated over or the ToListAsync method is called. For more information about deferred query execution, see Query Execution.
+
+Note: The Contains method is run on the database, not in the c# code shown above. The case sensitivity on the query depends on the database and the collation. On SQL Server, Contains maps to SQL LIKE, which is case insensitive. In SQLlite, with the default collation, it's case sensitive.
+
+Navigate to /Movies/Index. Append a query string such as ?searchString=Ghost to the URL. The filtered movies are displayed.
+
+Index view
+
+If you change the signature of the Index method to have a parameter named id, the id parameter will match the optional {id} placeholder for the default routes set in Startup.cs.
+
+C#
+
+Copy
+app.UseMvc(routes =>
+{
+    routes.MapRoute(
+        name: "default",
+        template: "{controller=Home}/{action=Index}/{id?}");
+});
+You can quickly rename the searchString parameter to id with the rename command. Right click on searchString > Rename.
+
+Contextual menu
+
+The rename targets are highlighted.
+
+Code editor showing the variable highlighted throughout the Index ActionResult method
+
+Change the parameter to id and all occurrences of searchString change to id.
+
+Code editor showing the variable has been changed to id
+
+The previous Index method:
+
+C#
+
+Copy
+public async Task<IActionResult> Index(string searchString)
+{
+    var movies = from m in _context.Movie
+                 select m;
+
+    if (!String.IsNullOrEmpty(searchString))
+    {
+        movies = movies.Where(s => s.Title.Contains(searchString));
+    }
+
+    return View(await movies.ToListAsync());
+}
+The updated Index method with id parameter:
+
+C#
+
+Copy
+public async Task<IActionResult> Index(string id)
+{
+    var movies = from m in _context.Movie
+                 select m;
+
+    if (!String.IsNullOrEmpty(id))
+    {
+        movies = movies.Where(s => s.Title.Contains(id));
+    }
+
+    return View(await movies.ToListAsync());
+}
+You can now pass the search title as route data (a URL segment) instead of as a query string value.
+
+Index view with the word ghost added to the Url and a returned movie list of two movies, Ghostbusters and Ghostbusters 2
+
+However, you can't expect users to modify the URL every time they want to search for a movie. So now you'll add UI elements to help them filter movies. If you changed the signature of the Index method to test how to pass the route-bound ID parameter, change it back so that it takes a parameter named searchString:
+
+C#
+
+Copy
+public async Task<IActionResult> Index(string searchString)
+{
+    var movies = from m in _context.Movie
+                 select m;
+
+    if (!String.IsNullOrEmpty(searchString))
+    {
+        movies = movies.Where(s => s.Title.Contains(searchString));
+    }
+
+    return View(await movies.ToListAsync());
+}
+Open the Views/Movies/Index.cshtml file, and add the <form> markup highlighted below:
+
+HTML
+
+Copy
+    ViewData["Title"] = "Index";
+}
+
+<h2>Index</h2>
+
+<p>
+    <a asp-action="Create">Create New</a>
+</p>
+
+<form asp-controller="Movies" asp-action="Index">
+    <p>
+        Title: <input type="text" name="SearchString">
+        <input type="submit" value="Filter" />
+    </p>
+</form>
+
+<table class="table">
+    <thead>
+The HTML <form> tag uses the Form Tag Helper, so when you submit the form, the filter string is posted to the Index action of the movies controller. Save your changes and then test the filter.
+
+Index view with the word ghost typed into the Title filter textbox
+
+There's no [HttpPost] overload of the Index method as you might expect. You don't need it, because the method isn't changing the state of the app, just filtering data.
+
+You could add the following [HttpPost] Index method.
+
+C#
+
+Copy
+[HttpPost]
+public string Index(string searchString, bool notUsed)
+{
+    return "From [HttpPost]Index: filter on " + searchString;
+}
+The notUsed parameter is used to create an overload for the Index method. We'll talk about that later in the tutorial.
+
+If you add this method, the action invoker would match the [HttpPost] Index method, and the [HttpPost] Index method would run as shown in the image below.
+
+Browser window with application response of From HttpPost Index: filter on ghost
+
+However, even if you add this [HttpPost] version of the Index method, there's a limitation in how this has all been implemented. Imagine that you want to bookmark a particular search or you want to send a link to friends that they can click in order to see the same filtered list of movies. Notice that the URL for the HTTP POST request is the same as the URL for the GET request (localhost:xxxxx/Movies/Index) -- there's no search information in the URL. The search string information is sent to the server as a form field value. You can verify that with the browser Developer tools or the excellent Fiddler tool. The image below shows the Chrome browser Developer tools:
+
+Network tab of Developer Tools in Microsoft Edge showing a request body with a searchString value of ghost
+
+You can see the search parameter and XSRF token in the request body. Note, as mentioned in the previous tutorial, the Form Tag Helper generates an XSRF anti-forgery token. We're not modifying data, so we don't need to validate the token in the controller method.
+
+Because the search parameter is in the request body and not the URL, you can't capture that search information to bookmark or share with others. We'll fix this by specifying the request should be HTTP GET.
+
+Notice how intelliSense helps us update the markup.
+
+Intellisense contextual menu with method selected in the list of attributes for the form element
+
+Intellisense contextual menu with get selected in the list of method attribute values
+
+Notice the distinctive font in the <form> tag. That distinctive font indicates the tag is supported by Tag Helpers.
+
+form tag with purple text
+
+Now when you submit a search, the URL contains the search query string. Searching will also go to the HttpGet Index action method, even if you have a HttpPost Index method.
+
+Browser window showing the searchString=ghost in the Url and the movies returned, Ghostbusters and Ghostbusters 2, contain the word ghost
+
+The following markup shows the change to the form tag:
+
+HTML
+
+Copy
+<form asp-controller="Movies" asp-action="Index" method="get">
+Adding Search by genre
+Add the following MovieGenreViewModel class to the Models folder:
+
+C#
+
+Copy
+using Microsoft.AspNetCore.Mvc.Rendering;
+using System.Collections.Generic;
+
+namespace MvcMovie.Models
+{
+    public class MovieGenreViewModel
+    {
+        public List<Movie> movies;
+        public SelectList genres;
+        public string movieGenre { get; set; }
+    }
+}
+The movie-genre view model will contain:
+
+A list of movies.
+A SelectList containing the list of genres. This will allow the user to select a genre from the list.
+movieGenre, which contains the selected genre.
+Replace the Index method in MoviesController.cs with the following code:
+
+C#
+
+Copy
+// Requires using Microsoft.AspNetCore.Mvc.Rendering;
+public async Task<IActionResult> Index(string movieGenre, string searchString)
+{
+    // Use LINQ to get list of genres.
+    IQueryable<string> genreQuery = from m in _context.Movie
+                                    orderby m.Genre
+                                    select m.Genre;
+
+    var movies = from m in _context.Movie
+                 select m;
+
+    if (!String.IsNullOrEmpty(searchString))
+    {
+        movies = movies.Where(s => s.Title.Contains(searchString));
+    }
+
+    if (!String.IsNullOrEmpty(movieGenre))
+    {
+        movies = movies.Where(x => x.Genre == movieGenre);
+    }
+
+    var movieGenreVM = new MovieGenreViewModel();
+    movieGenreVM.genres = new SelectList(await genreQuery.Distinct().ToListAsync());
+    movieGenreVM.movies = await movies.ToListAsync();
+
+    return View(movieGenreVM);
+}
+The following code is a LINQ query that retrieves all the genres from the database.
+
+C#
+
+Copy
+// Use LINQ to get list of genres.
+IQueryable<string> genreQuery = from m in _context.Movie
+                                orderby m.Genre
+                                select m.Genre;
+The SelectList of genres is created by projecting the distinct genres (we don't want our select list to have duplicate genres).
+
+C#
+
+Copy
+movieGenreVM.genres = new SelectList(await genreQuery.Distinct().ToListAsync())
+Adding search by genre to the Index view
+Update Index.cshtml as follows:
+
+HTML
+
+Copy
+@model MvcMovie.Models.MovieGenreViewModel
+
+@{
+    ViewData["Title"] = "Index";
+}
+
+<h2>Index</h2>
+
+<p>
+    <a asp-action="Create">Create New</a>
+</p>
+
+<form asp-controller="Movies" asp-action="Index" method="get">
+    <p>
+        <select asp-for="movieGenre" asp-items="Model.genres">
+            <option value="">All</option>
+        </select>
+
+        Title: <input type="text" name="SearchString">
+        <input type="submit" value="Filter" />
+    </p>
+</form>
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>
+                @Html.DisplayNameFor(model => model.movies[0].Title)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.movies[0].ReleaseDate)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.movies[0].Genre)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.movies[0].Price)
+            </th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model.movies)
+        {
+            <tr>
+                <td>
+                    @Html.DisplayFor(modelItem => item.Title)
+                </td>
+                <td>
+                    @Html.DisplayFor(modelItem => item.ReleaseDate)
+                </td>
+                <td>
+                    @Html.DisplayFor(modelItem => item.Genre)
+                </td>
+                <td>
+                    @Html.DisplayFor(modelItem => item.Price)
+                </td>
+                <td>
+                    <a asp-action="Edit" asp-route-id="@item.ID">Edit</a> |
+                    <a asp-action="Details" asp-route-id="@item.ID">Details</a> |
+                    <a asp-action="Delete" asp-route-id="@item.ID">Delete</a>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+Examine the lambda expression used in the following HTML Helper:
+
+@Html.DisplayNameFor(model => model.movies[0].Title)
+
+In the preceding code, the DisplayNameFor HTML Helper inspects the Title property referenced in the lambda expression to determine the display name. Since the lambda expression is inspected rather than evaluated, you don't receive an access violation when model, model.movies, or model.movies[0] are null or empty. When the lambda expression is evaluated (for example, @Html.DisplayFor(modelItem => item.Title)), the model's property values are evaluated.
+
+Test the app by searching by genre, by movie title, and by both.
+
+# PART EIGHT - ADD A NEW FIELD
+In this section you'll use Entity Framework Code First Migrations to add a new field to the model and migrate that change to the database.
+
+When you use EF Code First to automatically create a database, Code First adds a table to the database to help track whether the schema of the database is in sync with the model classes it was generated from. If they aren't in sync, EF throws an exception. This makes it easier to find inconsistent database/code issues.
+
+Adding a Rating Property to the Movie Model
+Open the Models/Movie.cs file and add a Rating property:
+
+C#
+
+Copy
+public class Movie
+{
+    public int ID { get; set; }
+    public string Title { get; set; }
+
+    [Display(Name = "Release Date")]
+    [DataType(DataType.Date)]
+    public DateTime ReleaseDate { get; set; }
+    public string Genre { get; set; }
+
+    [Column(TypeName = "decimal(18, 2)")]
+    public decimal Price { get; set; }
+    public string Rating { get; set; }
+}
+Build the app (Ctrl+Shift+B).
+
+Because you've added a new field to the Movie class, you also need to update the binding white list so this new property will be included. In MoviesController.cs, update the [Bind] attribute for both the Create and Edit action methods to include the Rating property:
+
+C#
+
+Copy
+[Bind("ID,Title,ReleaseDate,Genre,Price,Rating")]
+You also need to update the view templates in order to display, create and edit the new Rating property in the browser view.
+
+Edit the /Views/Movies/Index.cshtml file and add a Rating field:
+
+HTML
+
+Copy
+<table class="table">
+    <thead>
+        <tr>
+            <th>
+                @Html.DisplayNameFor(model => model.movies[0].Title)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.movies[0].ReleaseDate)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.movies[0].Genre)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.movies[0].Price)
+            </th>
+            <th>
+                @Html.DisplayNameFor(model => model.movies[0].Rating)
+            </th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in Model.movies)
+        {
+            <tr>
+                <td>
+                    @Html.DisplayFor(modelItem => item.Title)
+                </td>
+                <td>
+                    @Html.DisplayFor(modelItem => item.ReleaseDate)
+                </td>
+                <td>
+                    @Html.DisplayFor(modelItem => item.Genre)
+                </td>
+                <td>
+                    @Html.DisplayFor(modelItem => item.Price)
+                </td>
+                <td>
+                    @Html.DisplayFor(modelItem => item.Rating)
+                </td>
+                <td>
+Update the /Views/Movies/Create.cshtml with a Rating field. You can copy/paste the previous "form group" and let intelliSense help you update the fields. IntelliSense works with Tag Helpers. Note: In the RTM verison of Visual Studio 2017 you need to install the Razor Language Services for Razor intelliSense. This will be fixed in the next release.
+
+The developer has typed the letter R for the attribute value of asp-for in the second label element of the view. An Intellisense contextual menu has appeared showing the available fields, including Rating, which is highlighted in the list automatically. When the developer clicks the field or presses Enter on the keyboard, the value will be set to Rating.
+
+The app won't work until we update the DB to include the new field. If you run it now, you'll get the following SqlException:
+
+SqlException: Invalid column name 'Rating'.
+
+You're seeing this error because the updated Movie model class is different than the schema of the Movie table of the existing database. (There's no Rating column in the database table.)
+
+There are a few approaches to resolving the error:
+
+Have the Entity Framework automatically drop and re-create the database based on the new model class schema. This approach is very convenient early in the development cycle when you are doing active development on a test database; it allows you to quickly evolve the model and database schema together. The downside, though, is that you lose existing data in the database — so you don't want to use this approach on a production database! Using an initializer to automatically seed a database with test data is often a productive way to develop an application.
+
+Explicitly modify the schema of the existing database so that it matches the model classes. The advantage of this approach is that you keep your data. You can make this change either manually or by creating a database change script.
+
+Use Code First Migrations to update the database schema.
+
+For this tutorial, we'll use Code First Migrations.
+
+Update the SeedData class so that it provides a value for the new column. A sample change is shown below, but you'll want to make this change for each new Movie.
+
+C#
+
+Copy
+new Movie
+{
+    Title = "When Harry Met Sally",
+    ReleaseDate = DateTime.Parse("1989-1-11"),
+    Genre = "Romantic Comedy",
+    Rating = "R",
+    Price = 7.99M
+},
+Build the solution.
+
+From the Tools menu, select NuGet Package Manager > Package Manager Console.
+
+PMC menu
+
+In the PMC, enter the following commands:
+
+PowerShell
+
+Copy
+Add-Migration Rating
+Update-Database
+The Add-Migration command tells the migration framework to examine the current Movie model with the current Movie DB schema and create the necessary code to migrate the DB to the new model. The name "Rating" is arbitrary and is used to name the migration file. It's helpful to use a meaningful name for the migration file.
+
+If you delete all the records in the DB, the initialize will seed the DB and include the Rating field. You can do this with the delete links in the browser or from SSOX.
+
+Run the app and verify you can create/edit/display movies with a Rating field. You should also add the Rating field to the Edit, Details, and Delete view templates.
+
+# PART NINE - ADD VALIDATION
+In this section you'll add validation logic to the Movie model, and you'll ensure that the validation rules are enforced any time a user creates or edits a movie.
+
+Keeping things DRY
+One of the design tenets of MVC is DRY ("Don't Repeat Yourself"). ASP.NET Core MVC encourages you to specify functionality or behavior only once, and then have it be reflected everywhere in an app. This reduces the amount of code you need to write and makes the code you do write less error prone, easier to test, and easier to maintain.
+
+The validation support provided by MVC and Entity Framework Core Code First is a good example of the DRY principle in action. You can declaratively specify validation rules in one place (in the model class) and the rules are enforced everywhere in the app.
+
+Adding validation rules to the movie model
+Open the Movie.cs file. DataAnnotations provides a built-in set of validation attributes that you apply declaratively to any class or property. (It also contains formatting attributes like DataType that help with formatting and don't provide any validation.)
+
+Update the Movie class to take advantage of the built-in Required, StringLength, RegularExpression, and Range validation attributes.
+
+C#
+
+Copy
+public class Movie
+{
+    public int ID { get; set; }
+
+    [StringLength(60, MinimumLength = 3)]
+    [Required]
+    public string Title { get; set; }
+
+    [Display(Name = "Release Date")]
+    [DataType(DataType.Date)]
+    public DateTime ReleaseDate { get; set; }
+
+    [Range(1, 100)]
+    [DataType(DataType.Currency)]
+    [Column(TypeName = "decimal(18, 2)")]
+    public decimal Price { get; set; }
+
+    [RegularExpression(@"^[A-Z]+[a-zA-Z""'\s-]*$")]
+    [Required]
+    [StringLength(30)]
+    public string Genre { get; set; }
+
+    [RegularExpression(@"^[A-Z]+[a-zA-Z0-9""'\s-]*$")]
+    [StringLength(5)]
+    [Required]
+    public string Rating { get; set; }
+}
+The validation attributes specify behavior that you want to enforce on the model properties they're applied to. The Required and MinimumLength attributes indicates that a property must have a value; but nothing prevents a user from entering white space to satisfy this validation. The RegularExpression attribute is used to limit what characters can be input. In the code above, Genre and Rating must use only letters (First letter uppercase, white space, numbers and special characters are not allowed). The Range attribute constrains a value to within a specified range. The StringLength attribute lets you set the maximum length of a string property, and optionally its minimum length. Value types (such as decimal, int, float, DateTime) are inherently required and don't need the [Required] attribute.
+
+Having validation rules automatically enforced by ASP.NET Core helps make your app more robust. It also ensures that you can't forget to validate something and inadvertently let bad data into the database.
+
+Validation Error UI in MVC
+Run the app and navigate to the Movies controller.
+
+Tap the Create New link to add a new movie. Fill out the form with some invalid values. As soon as jQuery client side validation detects the error, it displays an error message.
+
+Movie view form with multiple jQuery client side validation errors
+
+Note
+
+You may not be able to enter decimal commas in the Price field. To support jQuery validation for non-English locales that use a comma (",") for a decimal point, and non US-English date formats, you must take steps to globalize your app. This GitHub issue 4076 for instructions on adding decimal comma.
+
+Notice how the form has automatically rendered an appropriate validation error message in each field containing an invalid value. The errors are enforced both client-side (using JavaScript and jQuery) and server-side (in case a user has JavaScript disabled).
+
+A significant benefit is that you didn't need to change a single line of code in the MoviesController class or in the Create.cshtml view in order to enable this validation UI. The controller and views you created earlier in this tutorial automatically picked up the validation rules that you specified by using validation attributes on the properties of the Movie model class. Test validation using the Edit action method, and the same validation is applied.
+
+The form data isn't sent to the server until there are no client side validation errors. You can verify this by putting a break point in the HTTP Post method, by using the Fiddler tool , or the F12 Developer tools.
+
+How validation works
+You might wonder how the validation UI was generated without any updates to the code in the controller or views. The following code shows the two Create methods.
+
+C#
+
+Copy
+// GET: Movies/Create
+public IActionResult Create()
+{
+    return View();
+}
+
+// POST: Movies/Create
+[HttpPost]
+[ValidateAntiForgeryToken]
+public async Task<IActionResult> Create(
+    [Bind("ID,Title,ReleaseDate,Genre,Price, Rating")] Movie movie)
+{
+    if (ModelState.IsValid)
+    {
+        _context.Add(movie);
+        await _context.SaveChangesAsync();
+        return RedirectToAction("Index");
+    }
+    return View(movie);
+}
+The first (HTTP GET) Create action method displays the initial Create form. The second ([HttpPost]) version handles the form post. The second Create method (The [HttpPost] version) calls ModelState.IsValid to check whether the movie has any validation errors. Calling this method evaluates any validation attributes that have been applied to the object. If the object has validation errors, the Create method re-displays the form. If there are no errors, the method saves the new movie in the database. In our movie example, the form isn't posted to the server when there are validation errors detected on the client side; the second Create method is never called when there are client side validation errors. If you disable JavaScript in your browser, client validation is disabled and you can test the HTTP POST Create method ModelState.IsValid detecting any validation errors.
+
+You can set a break point in the [HttpPost] Create method and verify the method is never called, client side validation won't submit the form data when validation errors are detected. If you disable JavaScript in your browser, then submit the form with errors, the break point will be hit. You still get full validation without JavaScript.
+
+The following image shows how to disable JavaScript in the FireFox browser.
+
+Firefox: On the Content tab of Options, uncheck the Enable Javascript checkbox.
+
+The following image shows how to disable JavaScript in the Chrome browser.
+
+Google Chrome: In the Javascript section of Content settings, select Do not allow any site to run JavaScript.
+
+After you disable JavaScript, post invalid data and step through the debugger.
+
+While debugging on a post of invalid data, Intellisense on ModelState.IsValid shows the value is false.
+
+Below is portion of the Create.cshtml view template that you scaffolded earlier in the tutorial. It's used by the action methods shown above both to display the initial form and to redisplay it in the event of an error.
+
+HTML
+
+Copy
+<form asp-action="Create">
+    <div class="form-horizontal">
+        <h4>Movie</h4>
+        <hr />
+
+        <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+        <div class="form-group">
+            <label asp-for="Title" class="col-md-2 control-label"></label>
+            <div class="col-md-10">
+                <input asp-for="Title" class="form-control" />
+                <span asp-validation-for="Title" class="text-danger"></span>
+            </div>
+        </div>
+
+        @*Markup removed for brevity.*@
+    </div>
+</form>
+The Input Tag Helper uses the DataAnnotations attributes and produces HTML attributes needed for jQuery Validation on the client side. The Validation Tag Helper displays validation errors. See Validation for more information.
+
+What's really nice about this approach is that neither the controller nor the Create view template knows anything about the actual validation rules being enforced or about the specific error messages displayed. The validation rules and the error strings are specified only in the Movie class. These same validation rules are automatically applied to the Edit view and any other views templates you might create that edit your model.
+
+When you need to change validation logic, you can do so in exactly one place by adding validation attributes to the model (in this example, the Movie class). You won't have to worry about different parts of the application being inconsistent with how the rules are enforced — all validation logic will be defined in one place and used everywhere. This keeps the code very clean, and makes it easy to maintain and evolve. And it means that you'll be fully honoring the DRY principle.
+
+Using DataType Attributes
+Open the Movie.cs file and examine the Movie class. The System.ComponentModel.DataAnnotations namespace provides formatting attributes in addition to the built-in set of validation attributes. We've already applied a DataType enumeration value to the release date and to the price fields. The following code shows the ReleaseDate and Price properties with the appropriate DataType attribute.
+
+C#
+
+Copy
+[Display(Name = "Release Date")]
+[DataType(DataType.Date)]
+public DateTime ReleaseDate { get; set; }
+
+[Range(1, 100)]
+[DataType(DataType.Currency)]
+public decimal Price { get; set; }
+The DataType attributes only provide hints for the view engine to format the data (and supplies elements/attributes such as <a> for URL's and <a href="mailto:EmailAddress.com"> for email. You can use the RegularExpression attribute to validate the format of the data. The DataType attribute is used to specify a data type that's more specific than the database intrinsic type, they're not validation attributes. In this case we only want to keep track of the date, not the time. The DataType Enumeration provides for many data types, such as Date, Time, PhoneNumber, Currency, EmailAddress and more. The DataType attribute can also enable the application to automatically provide type-specific features. For example, a mailto: link can be created for DataType.EmailAddress, and a date selector can be provided for DataType.Date in browsers that support HTML5. The DataType attributes emit HTML 5 data- (pronounced data dash) attributes that HTML 5 browsers can understand. The DataType attributes do not provide any validation.
+
+DataType.Date doesn't specify the format of the date that's displayed. By default, the data field is displayed according to the default formats based on the server's CultureInfo.
+
+The DisplayFormat attribute is used to explicitly specify the date format:
+
+C#
+
+Copy
+[DisplayFormat(DataFormatString = "{0:yyyy-MM-dd}", ApplyFormatInEditMode = true)]
+public DateTime ReleaseDate { get; set; }
+The ApplyFormatInEditMode setting specifies that the formatting should also be applied when the value is displayed in a text box for editing. (You might not want that for some fields — for example, for currency values, you probably don't want the currency symbol in the text box for editing.)
+
+You can use the DisplayFormat attribute by itself, but it's generally a good idea to use the DataType attribute. The DataType attribute conveys the semantics of the data as opposed to how to render it on a screen, and provides the following benefits that you don't get with DisplayFormat:
+
+The browser can enable HTML5 features (for example to show a calendar control, the locale-appropriate currency symbol, email links, etc.)
+
+By default, the browser will render data using the correct format based on your locale.
+
+The DataType attribute can enable MVC to choose the right field template to render the data (the DisplayFormat if used by itself uses the string template).
+
+Note
+
+jQuery validation doesn't work with the Range attribute and DateTime. For example, the following code will always display a client side validation error, even when the date is in the specified range:
+
+C#
+
+Copy
+[Range(typeof(DateTime), "1/1/1966", "1/1/2020")]
+You will need to disable jQuery date validation to use the Range attribute with DateTime. It's generally not a good practice to compile hard dates in your models, so using the Range attribute and DateTime is discouraged.
+
+The following code shows combining attributes on one line:
+
+C#
+
+Copy
+public class Movie
+{
+    public int ID { get; set; }
+
+    [StringLength(60, MinimumLength = 3)]
+    public string Title { get; set; }
+
+    [Display(Name = "Release Date"), DataType(DataType.Date)]
+    public DateTime ReleaseDate { get; set; }
+
+    [RegularExpression(@"^[A-Z]+[a-zA-Z""'\s-]*$"), Required, StringLength(30)]
+    public string Genre { get; set; }
+
+    [Range(1, 100), DataType(DataType.Currency)]
+    [Column(TypeName = "decimal(18, 2)")]
+    public decimal Price { get; set; }
+
+    [RegularExpression(@"^[A-Z]+[a-zA-Z0-9""'\s-]*$"), StringLength(5)]
+    public string Rating { get; set; }
+}
+In the next part of the series, we'll review the application and make some improvements to the automatically generated Details and Delete methods.
+
+Additional resources
+Working with Forms
+Globalization and localization
+Introduction to Tag Helpers
+Author Tag Helpers
+
+# PART TEN - EXAMINE THE DETAILS AND DELETE METHODS
+Open the Movie controller and examine the Details method:
+
+C#
+
+Copy
+// GET: Movies/Details/5
+public async Task<IActionResult> Details(int? id)
+{
+    if (id == null)
+    {
+        return NotFound();
+    }
+
+    var movie = await _context.Movie
+        .FirstOrDefaultAsync(m => m.ID == id);
+    if (movie == null)
+    {
+        return NotFound();
+    }
+
+    return View(movie);
+}
+The MVC scaffolding engine that created this action method adds a comment showing an HTTP request that invokes the method. In this case it's a GET request with three URL segments, the Movies controller, the Details method and an id value. Recall these segments are defined in Startup.cs.
+
+C#
+
+Copy
+app.UseMvc(routes =>
+{
+    routes.MapRoute(
+        name: "default",
+        template: "{controller=Home}/{action=Index}/{id?}");
+});
+EF makes it easy to search for data using the SingleOrDefaultAsync method. An important security feature built into the method is that the code verifies that the search method has found a movie before it tries to do anything with it. For example, a hacker could introduce errors into the site by changing the URL created by the links from http://localhost:xxxx/Movies/Details/1 to something like http://localhost:xxxx/Movies/Details/12345 (or some other value that doesn't represent an actual movie). If you didn't check for a null movie, the app would throw an exception.
+
+Examine the Delete and DeleteConfirmed methods.
+
+C#
+
+Copy
+// GET: Movies/Delete/5
+public async Task<IActionResult> Delete(int? id)
+{
+    if (id == null)
+    {
+        return NotFound();
+    }
+
+    var movie = await _context.Movie
+        .FirstOrDefaultAsync(m => m.ID == id);
+    if (movie == null)
+    {
+        return NotFound();
+    }
+
+    return View(movie);
+}
+
+// POST: Movies/Delete/5
+[HttpPost, ActionName("Delete")]
+[ValidateAntiForgeryToken]
+public async Task<IActionResult> DeleteConfirmed(int id)
+{
+    var movie = await _context.Movie.FindAsync(id);
+    _context.Movie.Remove(movie);
+    await _context.SaveChangesAsync();
+    return RedirectToAction(nameof(Index));
+}
+Note that the HTTP GET Delete method doesn't delete the specified movie, it returns a view of the movie where you can submit (HttpPost) the deletion. Performing a delete operation in response to a GET request (or for that matter, performing an edit operation, create operation, or any other operation that changes data) opens up a security hole.
+
+The [HttpPost] method that deletes the data is named DeleteConfirmed to give the HTTP POST method a unique signature or name. The two method signatures are shown below:
+
+C#
+
+Copy
+// GET: Movies/Delete/5
+public async Task<IActionResult> Delete(int? id)
+{
+C#
+
+Copy
+// POST: Movies/Delete/5
+[HttpPost, ActionName("Delete")]
+[ValidateAntiForgeryToken]
+public async Task<IActionResult> DeleteConfirmed(int id)
+{
+The common language runtime (CLR) requires overloaded methods to have a unique parameter signature (same method name but different list of parameters). However, here you need two Delete methods -- one for GET and one for POST -- that both have the same parameter signature. (They both need to accept a single integer as a parameter.)
+
+There are two approaches to this problem, one is to give the methods different names. That's what the scaffolding mechanism did in the preceding example. However, this introduces a small problem: ASP.NET maps segments of a URL to action methods by name, and if you rename a method, routing normally wouldn't be able to find that method. The solution is what you see in the example, which is to add the ActionName("Delete") attribute to the DeleteConfirmed method. That attribute performs mapping for the routing system so that a URL that includes /Delete/ for a POST request will find the DeleteConfirmed method.
+
+Another common work around for methods that have identical names and signatures is to artificially change the signature of the POST method to include an extra (unused) parameter. That's what we did in a previous post when we added the notUsed parameter. You could do the same thing here for the [HttpPost] Delete method:
+
+C#
+
+Copy
+// POST: Movies/Delete/6
+[ValidateAntiForgeryToken]
+public async Task<IActionResult> Delete(int id, bool notUsed)
